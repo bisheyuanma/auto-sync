@@ -1,9 +1,7 @@
-# .github/workflows/sync.yml
-
 name: Repo Auto Sync
 
 on:
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:  # 手动触发
   schedule:
     - cron: '0 3 * * *'  # 每天 UTC 3 点执行（北京时间早上 11 点）
 
@@ -11,7 +9,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout the repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -19,23 +17,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pygithub
 
-      - name: Sync Repositories
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          GITHUB_ACTOR: ${{ github.actor }}
+      - name: Sync all repositories once
+        if: github.event_name == 'workflow_dispatch'  # 仅手动触发时运行
         run: |
           python sync_repos.py
 
-      - name: Commit Updated Markdown
+      - name: Sync 30 repositories daily
+        if: github.event_name == 'schedule'  # 每天定时触发时运行
         run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git pull
-          git add repos_sync_list.md
-          git commit -m "Update sync status" || echo "No changes"
-          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
+          python sync_some_repos.py
