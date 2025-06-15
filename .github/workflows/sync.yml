@@ -33,9 +33,9 @@ jobs:
 
       - name: Commit Updated Markdown
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
           git pull
           git add repos_sync_list.md
           git commit -m "Update sync status" || echo "No changes"
-          git push
+          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
