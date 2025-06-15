@@ -8,7 +8,8 @@ OUTPUT_FILE = 'all_repos.txt'
 gh = Github(GH_PAT)
 user = gh.get_user(USER_ACCOUNT)
 
-repo = next(user.get_repos(), None)
+repos_iter = iter(user.get_repos())
+repo = next(repos_iter, None)
 
 with open(OUTPUT_FILE, 'w') as f:
     if repo:
