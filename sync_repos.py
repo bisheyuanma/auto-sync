@@ -1,87 +1,70 @@
-# sync_repos.py
-
 import os
-import re
 import subprocess
-import time
-from datetime import datetime
 from github import Github
+from datetime import datetime
 
-# 读取环境变量
-GITHUB_TOKEN = os.getenv("GH_PAT")
-GITHUB_USERNAME = os.getenv("GITHUB_ACTOR")
-MARKDOWN_FILE = "repos_sync_list.md"
-MAX_SYNC = 1  # 测试阶段先同步 1 个
+# 环境变量
+GH_PAT = os.environ.get("GH_PAT")
+BACKUP_DIR = "repo_mirrors"
+SYNC_LIST_FILE = "repos_sync_list.md"
 
-# 初始化 GitHub API
-gh = Github(GITHUB_TOKEN)
-user = gh.get_user()
+# 源账户列表（可修改或读取外部文件）
+SOURCE_USERS = [
+    "xunmaw001",
+    "javaplay996",
+    "zongjixiaoai66"
+]
 
-def parse_markdown_table(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+# 创建备份目录
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
-    rows = []
-    for line in lines:
-        if line.strip().startswith('|') and not line.strip().startswith('| 序号') and not line.strip().startswith('| ----'):
-            parts = [part.strip() for part in line.strip().split('|')[1:-1]]
-            rows.append(parts)
-    return rows, lines
+# 初始化 Markdown 表头
+if not os.path.exists(SYNC_LIST_FILE):
+    with open(SYNC_LIST_FILE, "w") as f:
+        f.write("| 序号 | 源仓库 | 状态 | 时间 |\n")
+        f.write("| ---- | ------ | ---- | ---- |\n")
 
-def write_markdown_table(lines, updated_rows):
-    with open(MARKDOWN_FILE, 'w', encoding='utf-8') as f:
-        for i, line in enumerate(lines):
-            if i < 3:
-                f.write(line)
-            else:
-                index = i - 3
-                if index < len(updated_rows):
-                    row = updated_rows[index]
-                    new_line = '| ' + ' | '.join(row) + ' |\n'
-                    f.write(new_line)
+# 登录 GitHub
+gh = Github(GH_PAT)
 
-def sync_repo(source_owner, repo_name):
-    src_url = f"https://github.com/{source_owner}/{repo_name}.git"
-    dest_repo_name = f"{source_owner}-{repo_name}"
+# 获取已同步的仓库集合
+synced_set = set()
+with open(SYNC_LIST_FILE, "r") as f:
+    for line in f:
+        if line.startswith("| "):
+            parts = line.split("|")
+            if len(parts) > 2:
+                synced_set.add(parts[2].strip())
 
-    # 1. clone
-    subprocess.run(["git", "clone", "--mirror", src_url], check=True)
-    os.chdir(f"{repo_name}.git")
+count = 0
+MAX_PER_RUN = 30
 
-    # 2. create target repo via API
-    new_repo = user.create_repo(dest_repo_name, private=False, auto_init=False)
-    dest_url = new_repo.clone_url.replace("https://", f"https://{GITHUB_TOKEN}@")
-
-    # 3. push to new repo
-    subprocess.run(["git", "push", "--mirror", dest_url], check=True)
-    os.chdir("..")
-    subprocess.run(["rm", "-rf", f"{repo_name}.git"])
-
-    return new_repo.html_url
-
-def main():
-    rows, lines = parse_markdown_table(MARKDOWN_FILE)
-    synced = 0
-
-    for row in rows:
-        if row[4].upper() != "TRUE":
-            source_owner = row[1]
-            repo_name = row[2]
-
+for username in SOURCE_USERS:
+    try:
+        user = gh.get_user(username)
+        repos = user.get_repos(sort="updated")
+        for repo in repos:
+            full_name = repo.full_name
+            if full_name in synced_set:
+                continue  # 跳过已同步
+            status = ""
             try:
-                print(f"同步中：{source_owner}/{repo_name}")
-                new_url = sync_repo(source_owner, repo_name)
-                row[4] = "TRUE"
-                row[5] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-                row[6] = new_url
-                synced += 1
-            except Exception as e:
-                print(f"同步失败：{source_owner}/{repo_name}，错误：{e}")
-
-            if synced >= MAX_SYNC:
-                break
-
-    write_markdown_table(lines, rows)
-
-if __name__ == '__main__':
-    main()
+                print(f"同步中：{full_name}")
+                subprocess.run([
+                    "git", "clone", "--mirror",
+                    f"https://x-access-token:{GH_PAT}@github.com/{full_name}.git",
+                    f"{BACKUP_DIR}/{repo.name}.git"
+                ], check=True)
+                status = "✅ 成功"
+            except subprocess.CalledProcessError:
+                status = "❌ 失败或不存在"
+            with open(SYNC_LIST_FILE, "a") as f:
+                f.write(f"| {len(synced_set)+1} | [{full_name}](https://github.com/{full_name}) | {status} | {datetime.utcnow().isoformat()} |
+")
+            synced_set.add(full_name)
+            count += 1
+            if count >= MAX_PER_RUN:
+                raise SystemExit(0)
+    except Exception as e:
+        print(f"跳过用户 {username}，错误：{e}")
+        continue
